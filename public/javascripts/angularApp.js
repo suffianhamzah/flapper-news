@@ -61,7 +61,7 @@ app.factory('posts', ['$http', function($http){
     //use the express route for this post's id to add an upvote to it in the mongo model
     return $http.put('/posts/' + post._id + '/upvote')
     .success(function (data) {
-        //if we know it worked on the backend, update frontend
+        //if we know it wrked on the backend, update frontend
         post.upvotes += 1;
     });
 };
@@ -102,7 +102,7 @@ app.controller('PostsCtrl', [
 		$scope.commentUpvotes = function(comment){
   		posts.upvoteComment(post, comment);
   	};
-  	
+
 	}]);
 
 app.controller('MainCtrl',[
