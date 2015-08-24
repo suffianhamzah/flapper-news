@@ -6,72 +6,123 @@ app.config([
 	function($stateProvider, $urlRouterProvider){
 
 		$stateProvider
-			.state('home', {
-				url: '/home',
-				templateUrl: '/home.html',
-				controller: 'MainCtrl'
-			})
-			.state('posts', {
-				url: '/posts/{id}',
-				templateUrl: '/posts.html',
-				controller: 'PostsCtrl'
-			});
+		.state('home', {
+			url: '/home',
+			templateUrl: '/home.html',
+			controller: 'MainCtrl',
+			resolve: {
+				postPromise: ['posts', function(posts){
+					return posts.getAll();
+				}]
+			}
+		})
+		.state('posts', {
+			url: '/posts/{id}',
+			templateUrl: '/posts.html',
+			controller: 'PostsCtrl',
+			resolve: {
+				post: ['$stateParams', 'posts', function($stateParams, posts) {
+					return posts.get($stateParams.id);
+				}]
+			}
+		});
 
 		$urlRouterProvider.otherwise('home');
 	}]);
 
-app.factory('posts', [function(){
+app.factory('posts', ['$http', function($http){
 	var o = {
 		posts:[]
 	};
-	return o;
+
+	o.getAll = function() {
+		return $http.get('/posts').success(function (data) {
+			angular.copy(data, o.posts);
+		});
+	};
+  //now we'll need to create new posts
+  //uses the router.post in index.js to post a new Post mongoose model to mongodb
+  //when $http gets a success back, it adds this post to the posts object in
+  //this local factory, so the mongodb and angular data is the same
+  //sweet!
+  o.create = function(post) {
+  	return $http.post('/posts', post).success(function (data) {
+  		o.posts.push(data);
+  	});
+  };
+
+  o.get = function(id) {
+  return $http.get('/posts/' + id).then(function(res){
+    return res.data;
+  });
+};
+  //upvotes
+  o.upvote = function (post) {
+    //use the express route for this post's id to add an upvote to it in the mongo model
+    return $http.put('/posts/' + post._id + '/upvote')
+    .success(function (data) {
+        //if we know it worked on the backend, update frontend
+        post.upvotes += 1;
+    });
+};
+
+  o.addComment = function(id, comment) {
+  	return $http.post('/posts/' + id + '/comments', comment);
+  };
+
+ o.upvoteComment = function (post, comment) {
+          return $http.put('/posts/' + post._id + '/comments/' + comment._id + '/upvote')
+                  .success(function (data) {
+                      comment.upvotes += 1;
+                  });
+      };
+
+return o;
 }])
 
 app.controller('PostsCtrl', [
 	'$scope',
-	'$stateParams',
 	'posts',
-	function($scope, $stateParams, posts){
-		$scope.post = posts.posts[$stateParams.id];
+	'post',
+	function($scope, posts, post){
+		$scope.post = post;
 		
 		$scope.addComment = function(){
 			if($scope.body === '') {return;}
-			$scope.post.comments.push({
+			posts.addComment(post._id, {
 				body: $scope.body,
 				author: 'user',
-				upvotes: 0
+			}).success(function(comment) {
+				$scope.post.comments.push(comment);
 			});
+			
 			$scope.body = '';
 		};
 
-		$scope.incrementUpvotes = function(post){
-		post.upvotes +=1;
-		};
+		$scope.commentUpvotes = function(comment){
+  		posts.upvoteComment(post, comment);
+  	};
+  	
 	}]);
 
 app.controller('MainCtrl',[
 	'$scope', 
 	'posts',
-function($scope, posts){
-	$scope.test = 'Hello world!';
-	$scope.posts = posts.posts;
+	function($scope, posts){
+		$scope.test = 'Hello world!';
+		$scope.posts = posts.posts;
 
-	$scope.addPost = function(){
-		if(!$scope.title || $scope.title === '') { return;}
-		$scope.posts.push({
-			title: $scope.title, 
-			link: $scope.link,
-			upvotes: 0,
-			comments: [
-				{author: 'Joe', body: 'Cool post!', upvotes: 0},
-				{author: 'Bob', body: 'Greate idea but everything is wrong!', upvotes: 0}
-			]
-		});
-		$scope.title ='';
-		$scope.link = '';
-	};
+		$scope.addPost = function(){
+			if(!$scope.title || $scope.title === '') { return; }
+			posts.create({
+				title: $scope.title,
+				link: $scope.link,
+			});
+			$scope.title = '';
+			$scope.link = '';
+		};
 
-	$scope.incrementUpvotes = function(post){
-		post.upvotes +=1;
-	};
-}]);
+		$scope.incrementUpvotes = function(post){
+			posts.upvote(post);
+		};
+	}]);
