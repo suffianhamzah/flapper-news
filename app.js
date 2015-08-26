@@ -11,7 +11,7 @@ var passport = require('passport');
 mongoose.connect('mongodb://localhost/news');
 require('./models/Posts');
 require('./models/Comments');
-require('./models/Users');
+require('./models/User');
 
 //allow passport to be used
 require('./config/passport');

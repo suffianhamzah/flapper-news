@@ -25,12 +25,84 @@ app.config([
 					return posts.get($stateParams.id);
 				}]
 			}
+		})
+		.state('login', {
+			url: '/login',
+			templateUrl: '/login.html',
+			controller: 'AuthCtrl',
+			onEnter: ['$state', 'auth', function($state, auth){
+				if(auth.isLoggedIn()){
+					$state.go('home');
+				}
+			}]
+		})
+		.state('register', {
+			url: '/register',
+			templateUrl: '/register.html',
+			controller: 'AuthCtrl',
+			onEnter: ['$state', 'auth', function($state, auth){
+				if(auth.isLoggedIn()){
+					$state.go('home');
+				}
+			}]
 		});
 
 		$urlRouterProvider.otherwise('home');
 	}]);
 
-app.factory('posts', ['$http', function($http){
+//service for user auth
+app.factory('auth', ['$http', '$window', function($http, $window){
+	var auth = {};
+
+	auth.saveToken = function (token){
+		$window.localStorage['flapper-news-token'] = token;
+	};
+
+	auth.getToken = function (){
+		return $window.localStorage['flapper-news-token'];
+	};
+
+	auth.isLoggedIn = function(){
+		var token = auth.getToken();
+
+		if(token){
+			var payload = JSON.parse($window.atob(token.split('.')[1]));
+		
+			return payload.exp > Date.now() / 1000;
+		} else {
+			return false;
+		}
+	};
+
+	auth.currentUser = function(){
+		if(auth.isLoggedIn()){
+			var token = auth.getToken();
+			var payload = JSON.parse($window.atob(token.split('.')[1]));
+		
+			return payload.username;
+		}
+	};
+
+	auth.register = function(user){
+		return $http.post('/register', user).success(function(data){
+			auth.saveToken(data.token);
+		});
+	};
+
+	auth.logIn = function(user){
+		return $http.post('/login', user).success(function(data){
+			auth.saveToken(data.token);
+		});
+	};
+
+	auth.logOut = function(){
+		$window.localStorage.removeItem('flapper-news-token');
+	};
+
+	return auth;
+}])
+
+app.factory('posts', ['$http', 'auth', function($http, auth){
 	var o = {
 		posts:[]
 	};
@@ -46,7 +118,9 @@ app.factory('posts', ['$http', function($http){
   //this local factory, so the mongodb and angular data is the same
   //sweet!
   o.create = function(post) {
-  	return $http.post('/posts', post).success(function (data) {
+  	return $http.post('/posts', post, {
+  		headers: {Authorization: 'Bearer '+auth.getToken()}
+  	}).success(function (data) {
   		o.posts.push(data);
   	});
   };
@@ -59,7 +133,9 @@ app.factory('posts', ['$http', function($http){
   //upvotes
   o.upvote = function (post) {
     //use the express route for this post's id to add an upvote to it in the mongo model
-    return $http.put('/posts/' + post._id + '/upvote')
+    return $http.put('/posts/' + post._id + '/upvote', null, {
+    	headers: {Authorization: 'Bearer '+auth.getToken()}
+    })
     .success(function (data) {
         //if we know it wrked on the backend, update frontend
         post.upvotes += 1;
@@ -67,12 +143,15 @@ app.factory('posts', ['$http', function($http){
 };
 
   o.addComment = function(id, comment) {
-  	return $http.post('/posts/' + id + '/comments', comment);
+  	return $http.post('/posts/' + id + '/comments', comment, {
+  		headers: {Authorization: 'Bearer '+auth.getToken()}
+  	});
   };
 
  o.upvoteComment = function (post, comment) {
-          return $http.put('/posts/' + post._id + '/comments/' + comment._id + '/upvote')
-                  .success(function (data) {
+          return $http.put('/posts/' + post._id + '/comments/' + comment._id + '/upvote', null, {
+          	headers: {Authorization: 'Bearer '+auth.getToken()}
+          }).success(function (data) {
                       comment.upvotes += 1;
                   });
       };
@@ -84,9 +163,11 @@ app.controller('PostsCtrl', [
 	'$scope',
 	'posts',
 	'post',
-	function($scope, posts, post){
+	'auth',
+	function($scope, posts, post, auth){
 		$scope.post = post;
 		
+		$scope.isLoggedIn = auth.isLoggedIn;
 		$scope.addComment = function(){
 			if($scope.body === '') {return;}
 			posts.addComment(post._id, {
@@ -108,9 +189,11 @@ app.controller('PostsCtrl', [
 app.controller('MainCtrl',[
 	'$scope', 
 	'posts',
-	function($scope, posts){
+	'auth',
+	function($scope, posts, auth){
 		$scope.test = 'Hello world!';
 		$scope.posts = posts.posts;
+		$scope.isLoggedIn = auth.isLoggedIn;
 
 		$scope.addPost = function(){
 			if(!$scope.title || $scope.title === '') { return; }
@@ -125,4 +208,38 @@ app.controller('MainCtrl',[
 		$scope.incrementUpvotes = function(post){
 			posts.upvote(post);
 		};
+	}]);
+
+app.controller('AuthCtrl', [
+	'$scope',
+	'$state',
+	'auth',
+	function($scope, $state, auth){
+		$scope.user = {};
+
+		$scope.register = function(){
+			auth.register($scope.user).error(function(error){
+				$scope.error = error;
+			}).then(function(){
+				$state.go('home');
+			});
+		};
+
+		$scope.logIn = function(){
+			auth.logIn($scope.user).error(function(error){
+				$scope.error = error;
+			}).then(function(){
+				$state.go('home');
+			});
+		};
+	}]);
+
+//navbar controller
+app.controller('NavCtrl', [
+	'$scope',
+	'auth',
+	function($scope, auth){
+		$scope.isLoggedIn = auth.isLoggedIn;
+		$scope.currentUser = auth.currentUser;
+		$scope.logOut = auth.logOut;
 	}]);
